@@ -1,74 +1,93 @@
-    package org.firstinspires.ftc.teamcode.opmodes;
 
-    import com.arcrobotics.ftclib.gamepad.GamepadKeys;
-    import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
+package org.firstinspires.ftc.teamcode.opmodes;
 
-    import org.firstinspires.ftc.teamcode.util.DriveInputFilter;
-    import org.firstinspires.ftc.teamcode.util.Timer;
+import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
+import org.firstinspires.ftc.teamcode.util.Timer;
 
+@TeleOp(name = "RobotCentric TeleOp", group = "TeleOp")
+public class RobotCentric extends BaseTeleOp {
 
-    @TeleOp(name = "RobotCentric TeleOp", group = "TeleOp")
-    public class RobotCentric extends BaseTeleOp{
-        private final DriveInputFilter smoother = new DriveInputFilter();
-        @Override
-        public void runOpMode() throws InterruptedException {
+    // Temporary speed limit for drivetrain testing
+    private static final double DRIVE_SPEED = 0.75;
+    private static final double DEADZONE = 0.05;
 
-            initHardware();
+    private double applyDeadzone(double value) {
+        return Math.abs(value) < DEADZONE ? 0.0 : value;
+    }
 
-            // update telemetry to show INITIALIZED status
-            telemetry.addData("Status", "INITIALIZED");
-            telemetry.update();
+    @Override
+    public void runOpMode() throws InterruptedException {
 
-            // wait for user to press start button
-            waitForStart();
-            Timer.start();
-            smoother.reset();
-            // start OpMode loop
+        // Disable Pinpoint for robot-centric driving
+        initHardware(false);
+
+        telemetry.addData("Status", "INITIALIZED");
+        telemetry.update();
+
+        waitForStart();
+
+        if (isStopRequested()) {
+            return;
+        }
+
+        Timer.start();
+
+        try {
             while (opModeIsActive()) {
 
                 updateInputs();
 
-                //<editor-fold desc="Drivetrain">
-                double ly = smoother.shape(controller1.getLeftY());
-                double lx = smoother.shape(controller1.getLeftX());
-                double rx = smoother.shape(controller1.getRightX());
+                // JOYSTICK INPUTS
+                double ly = applyDeadzone(controller1.getLeftY());
+                double lx = applyDeadzone(controller1.getLeftX());
+                double rx = applyDeadzone(controller1.getRightX());
 
-                smoother.update(ly, lx, rx);
-                ly = smoother.out[0];
-                lx = smoother.out[1];
-                rx = smoother.out[2];
+                // MECANUM DRIVE CALCULATIONS
+                double frontLeftPower = ly + lx + rx;
+                double frontRightPower = ly - lx - rx;
+                double backLeftPower = ly - lx + rx;
+                double backRightPower = ly + lx - rx;
 
-                // Calculate motor powers
-                double frontLeftPower = (ly + lx + rx);
-                double frontRightPower = (ly - lx - rx);
-                double backLeftPower = (ly - lx + rx);
-                double backRightPower = (ly + lx - rx);
+                // NORMALIZE MOTOR POWERS
+                double maxPower = Math.max(
+                        1.0,
+                        Math.max(
+                                Math.max(
+                                        Math.abs(frontLeftPower),
+                                        Math.abs(frontRightPower)
+                                ),
+                                Math.max(
+                                        Math.abs(backLeftPower),
+                                        Math.abs(backRightPower)
+                                )
+                        )
+                );
 
-                // scale down if any motor is over 1.0
-                double maxPower = Math.max(1.0, Math.max(
-                        Math.max(Math.abs(frontLeftPower), Math.abs(frontRightPower)),
-                        Math.max(Math.abs(backLeftPower), Math.abs(backRightPower))));
+                // APPLY TEMPORARY SPEED LIMIT
+                setDrivePowers(
+                        (frontLeftPower / maxPower) * DRIVE_SPEED,
+                        (frontRightPower / maxPower) * DRIVE_SPEED,
+                        (backLeftPower / maxPower) * DRIVE_SPEED,
+                        (backRightPower / maxPower) * DRIVE_SPEED
+                );
 
-                setDrivePowers(frontLeftPower / maxPower, frontRightPower / maxPower,
-                        backLeftPower / maxPower, backRightPower / maxPower);
-                //</editor-fold>
+                // INTAKE, INDEXER, OUTTAKE, SERVOS
+                updateSubsystems();
 
-                if (lt1Reader.isDown()) {
-                    intake.in();
-                }
-                else if(controller1.getButton(GamepadKeys.Button.LEFT_BUMPER)) {
-                    intake.out();
-                }
-                else{
-                    intake.stop();
-                }
+                // TELEMETRY
+                telemetry.addData("Status", "RUNNING");
+                telemetry.addData("Left Y", "%.2f", ly);
+                telemetry.addData("Left X", "%.2f", lx);
+                telemetry.addData("Right X", "%.2f", rx);
+                telemetry.addData("Drive Speed", "%.0f%%",
+                        DRIVE_SPEED * 100);
 
-                //<editor-fold desc="Telemetry">
                 addLoopTimeTelemetry();
                 telemetry.update();
-                //</editor-fold>
             }
 
+        } finally {
+            stopAllMotors();
         }
-
     }
+}
